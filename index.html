@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON Image Asset Packager</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- JSZip for creating the zip file -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- FileSaver for triggering the download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50 min-h-screen text-gray-800 font-sans">
+
+    <div class="max-w-4xl mx-auto py-10 px-4">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-blue-600 mb-2"><i class="fa-solid fa-file-zipper"></i> JSON Image Packager</h1>
+            <p class="text-gray-500">Upload your <code class="bg-gray-200 px-1 rounded">data.json</code>. We will extract all external images, download them, update the JSON paths, and provide a downloadable ZIP file.</p>
+        </header>
+
+        <main class="bg-white rounded-xl shadow-lg p-6 md:p-8">
+            <!-- File Input Section -->
+            <div id="upload-section" class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:bg-gray-50 transition-colors">
+                <input type="file" id="json-file" accept=".json" class="hidden" />
+                <label for="json-file" class="cursor-pointer flex flex-col items-center justify-center space-y-3 mb-6">
+                    <i class="fa-solid fa-cloud-arrow-up text-4xl text-blue-500"></i>
+                    <span class="text-lg font-medium text-gray-700">Click to upload data.json</span>
+                    <span class="text-sm text-gray-400">or drag and drop it here</span>
+                </label>
+
+                <div class="mt-4 pt-4 border-t border-gray-200 text-left w-full max-w-md mx-auto">
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        <input type="checkbox" id="webp-checkbox" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500" checked>
+                        <span class="text-sm font-medium text-gray-700">Convert images to WebP (85% Quality)</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-8">Reduces file size. SVGs and GIFs are skipped automatically to preserve formats.</p>
+                </div>
+            </div>
+
+            <!-- Processing Section (Hidden initially) -->
+            <div id="processing-section" class="hidden mt-6 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-xl font-semibold"><i class="fa-solid fa-gears text-blue-500"></i> Processing...</h2>
+                    <span id="progress-text" class="text-sm font-medium text-gray-500">0 / 0 images</span>
+                </div>
+                
+                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                </div>
+
+                <div class="bg-gray-900 text-green-400 font-mono text-sm p-4 rounded-lg h-64 overflow-y-auto" id="log-terminal">
+                    <!-- Logs will appear here -->
+                </div>
+            </div>
+
+            <!-- Download Section (Hidden initially) -->
+            <div id="download-section" class="hidden mt-6 text-center">
+                <div class="p-6 bg-green-50 border border-green-200 rounded-lg">
+                    <h3 class="text-2xl font-bold text-green-700 mb-2"><i class="fa-solid fa-circle-check"></i> Packaging Complete!</h3>
+                    <p class="text-green-600 mb-6">Your updated JSON and image assets are ready.</p>
+                    <button id="download-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition-colors">
+                        <i class="fa-solid fa-download mr-2"></i> Download ZIP
+                    </button>
+                    <button id="reset-btn" class="ml-4 text-gray-500 hover:text-gray-700 font-medium underline">
+                        Process another file
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // DOM Elements
+        const fileInput = document.getElementById('json-file');
+        const uploadSection = document.getElementById('upload-section');
+        const processingSection = document.getElementById('processing-section');
+        const downloadSection = document.getElementById('download-section');
+        const logTerminal = document.getElementById('log-terminal');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const downloadBtn = document.getElementById('download-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const webpCheckbox = document.getElementById('webp-checkbox');
+
+        let finalZipBlob = null;
+
+        // Add log message to terminal
+        function log(msg, type = 'info') {
+            const p = document.createElement('div');
+            p.textContent = `> ${msg}`;
+            if (type === 'error') p.className = 'text-red-400';
+            if (type === 'success') p.className = 'text-blue-300';
+            if (type === 'warning') p.className = 'text-yellow-400';
+            logTerminal.appendChild(p);
+            logTerminal.scrollTop = logTerminal.scrollHeight;
+        }
+
+        // Drag and drop styles
+        uploadSection.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadSection.classList.add('border-blue-500', 'bg-blue-50');
+        });
+        uploadSection.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            uploadSection.classList.remove('border-blue-500', 'bg-blue-50');
+        });
+        uploadSection.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadSection.classList.remove('border-blue-500', 'bg-blue-50');
+            if (e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                handleFileSelect();
+            }
+        });
+
+        fileInput.addEventListener('change', handleFileSelect);
+        resetBtn.addEventListener('click', resetApp);
+        downloadBtn.addEventListener('click', () => {
+            if (finalZipBlob) saveAs(finalZipBlob, 'packaged_assets.zip');
+        });
+
+        function resetApp() {
+            fileInput.value = '';
+            uploadSection.classList.remove('hidden');
+            processingSection.classList.add('hidden');
+            downloadSection.classList.add('hidden');
+            logTerminal.innerHTML = '';
+            progressBar.style.width = '0%';
+            progressText.textContent = '0 / 0 images';
+            finalZipBlob = null;
+        }
+
+        function handleFileSelect() {
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const jsonData = JSON.parse(e.target.result);
+                    processJSON(jsonData);
+                } catch (err) {
+                    alert("Invalid JSON file. Please check the file format.");
+                    console.error(err);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // Identify if a key-value pair represents an external image
+        function isImageTarget(key, value) {
+            if (typeof value !== 'string') return false;
+            if (!value.startsWith('http://') && !value.startsWith('https://')) return false;
+
+            const lowerKey = key.toLowerCase();
+            const knownImageKeys = ['logourl', 'image', 'image_url', 'image_url2', 'src', '/src'];
+            
+            // Check by known key names
+            if (knownImageKeys.includes(lowerKey)) return true;
+
+            // Check if key is generic "url" but points to an image
+            if (lowerKey === 'url') {
+                const hasImageExt = value.match(/\.(jpeg|jpg|gif|png|webp|svg)(\?.*)?$/i);
+                const hasImageDomain = value.includes('unsplash.com') || 
+                                       value.includes('i.ibb.co') || 
+                                       value.includes('wikimedia.org') ||
+                                       value.includes('circuitcdn.com');
+                if (hasImageExt || hasImageDomain) return true;
+            }
+
+            return false;
+        }
+
+        // Recursively search the JSON tree for targets
+        function extractTasks(obj, tasks = []) {
+            if (typeof obj === 'object' && obj !== null) {
+                for (let key in obj) {
+                    if (isImageTarget(key, obj[key])) {
+                        tasks.push({ parent: obj, key: key, url: obj[key] });
+                    } else if (typeof obj[key] === 'object') {
+                        extractTasks(obj[key], tasks);
+                    }
+                }
+            }
+            return tasks;
+        }
+
+        // Attempt to fetch an image, falling back to multiple proxies if CORS blocks it
+        async function fetchImageBlob(url) {
+            try {
+                const res = await fetch(url, { mode: 'cors' });
+                if (res.ok) return await res.blob();
+            } catch (err) {
+                // Ignore direct fetch error and fall through to proxies
+            }
+
+            log(`Direct fetch failed for ${url.substring(0, 30)}... trying proxies.`, 'warning');
+            
+            // List of reliable public CORS proxies
+            const proxies = [
+                `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+                `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+                `https://corsproxy.io/?${encodeURIComponent(url)}`
+            ];
+
+            for (const proxyUrl of proxies) {
+                try {
+                    const resProxy = await fetch(proxyUrl);
+                    if (resProxy.ok) return await resProxy.blob();
+                } catch (err) {
+                    // Continue to the next proxy if this one fails
+                }
+            }
+
+            // Return null instead of throwing to prevent the app from halting or dumping stack traces
+            return null; 
+        }
+
+        // Infer file extension from Blob type or URL
+        function getExtension(blob, url) {
+            if (blob.type) {
+                const parts = blob.type.split('/');
+                if (parts.length === 2 && parts[0] === 'image') {
+                    let ext = parts[1];
+                    if (ext === 'jpeg') return 'jpg';
+                    if (ext === 'svg+xml') return 'svg';
+                    if (ext !== 'octet-stream') return ext;
+                }
+            }
+            const match = url.match(/\.(jpg|jpeg|png|gif|webp|svg)(?:\?|$)/i);
+            if (match) {
+                let ext = match[1].toLowerCase();
+                return ext === 'jpeg' ? 'jpg' : ext;
+            }
+            return 'jpg'; // Fallback
+        }
+
+        // Convert any string to a safe, URL-friendly filename
+        function sanitizeFilename(str) {
+            return str.toString().toLowerCase()
+                      .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric with hyphens
+                      .replace(/^-+|-+$/g, '') // Trim hyphens from start and end
+                      .substring(0, 50) || 'asset'; // Limit length, fallback if empty
+        }
+
+        // Intelligently figure out a good filename based on the JSON context
+        function getDescriptiveName(parentObj, key) {
+            // Prioritized list of properties that might describe the object
+            const idKeys = ['acronym', 'name', 'speaker', 'alt', 'caption', 'title', 'label', 'id'];
+            
+            for (const k of idKeys) {
+                if (parentObj[k] && typeof parentObj[k] === 'string' && parentObj[k].trim() !== '') {
+                    // Distinguish secondary keys (e.g., if an object has both image_url and image_url2)
+                    let suffix = '';
+                    const lowerKey = key.toLowerCase();
+                    if (lowerKey !== 'image' && lowerKey !== 'image_url' && lowerKey !== 'src' && lowerKey !== '/src' && lowerKey !== 'url') {
+                         suffix = '-' + key;
+                    }
+                    return sanitizeFilename(parentObj[k]) + (suffix ? sanitizeFilename(suffix) : '');
+                }
+            }
+            // Fallback to the key name if no descriptive sibling properties exist
+            return sanitizeFilename(key);
+        }
+
+        // Convert Blob to WebP
+        function convertToWebP(blob, quality = 0.85) {
+            return new Promise((resolve) => {
+                // Skip SVGs, GIFs (to preserve animation), or non-images
+                if (blob.type === 'image/svg+xml' || blob.type === 'image/gif' || !blob.type.startsWith('image/')) {
+                    return resolve(blob);
+                }
+                const img = new Image();
+                const url = URL.createObjectURL(blob);
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    canvas.toBlob((webpBlob) => {
+                        URL.revokeObjectURL(url);
+                        resolve(webpBlob || blob); // Fallback to original if conversion fails
+                    }, 'image/webp', quality);
+                };
+                img.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    resolve(blob);
+                };
+                img.src = url;
+            });
+        }
+
+        async function processJSON(data) {
+            uploadSection.classList.add('hidden');
+            processingSection.classList.remove('hidden');
+            logTerminal.innerHTML = '';
+            
+            log('Parsing JSON...');
+            const tasks = extractTasks(data);
+            
+            if (tasks.length === 0) {
+                log('No external image URLs found in the JSON.', 'warning');
+                setTimeout(() => { resetApp(); alert("No external images found!"); }, 2000);
+                return;
+            }
+
+            log(`Found ${tasks.length} external image(s) to process.`, 'success');
+            
+            const zip = new JSZip();
+            const assetsFolder = zip.folder("assets/images");
+            
+            let completed = 0;
+            let counter = 1;
+            const usedNames = new Set(); // Track filenames to prevent duplicates
+            const downloadedUrls = new Map(); // Track URLs to merge duplicates: url -> localPath
+
+            for (const task of tasks) {
+                try {
+                    // Check if we've already downloaded (or failed to download) this URL
+                    if (downloadedUrls.has(task.url)) {
+                        const existingPath = downloadedUrls.get(task.url);
+                        if (existingPath === null) {
+                            log(`[Skipped] Previous download failed for ${task.url}.`, 'warning');
+                        } else {
+                            task.parent[`${task.key}_originalsourceurl`] = task.url;
+                            task.parent[task.key] = existingPath;
+                            log(`[Reused] Merged duplicate reference to existing file: ${existingPath}`, 'success');
+                        }
+                        
+                        completed++;
+                        counter++;
+                        // Update Progress UI
+                        const percent = Math.round((completed / tasks.length) * 100);
+                        progressBar.style.width = `${percent}%`;
+                        progressText.textContent = `${completed} / ${tasks.length} images`;
+                        continue;
+                    }
+
+                    log(`Downloading [${counter}/${tasks.length}]: ${task.url}`);
+                    
+                    let blob = await fetchImageBlob(task.url);
+                    
+                    // If all downloads fail (direct + all proxies), handle gracefully
+                    if (!blob) {
+                        log(`Failed to download ${task.url} (all proxies failed). Kept original link.`, 'error');
+                        downloadedUrls.set(task.url, null); // Cache the failure so we don't retry it
+                        completed++;
+                        counter++;
+                        
+                        // Update Progress UI
+                        const percent = Math.round((completed / tasks.length) * 100);
+                        progressBar.style.width = `${percent}%`;
+                        progressText.textContent = `${completed} / ${tasks.length} images`;
+                        continue;
+                    }
+
+                    // Convert to WebP if checked
+                    if (webpCheckbox.checked) {
+                        blob = await convertToWebP(blob, 0.85);
+                    }
+
+                    const ext = getExtension(blob, task.url);
+                    
+                    // Generate new descriptive local path
+                    let baseName = getDescriptiveName(task.parent, task.key);
+                    let finalName = baseName;
+                    let dupCounter = 1;
+                    
+                    // Ensure uniqueness to avoid overwriting files with the same derived name
+                    while (usedNames.has(finalName)) {
+                        finalName = `${baseName}-${dupCounter}`;
+                        dupCounter++;
+                    }
+                    usedNames.add(finalName);
+
+                    const filename = `${finalName}.${ext}`;
+                    const localPath = `assets/images/${filename}`;
+                    
+                    // Add to zip & cache for duplicates
+                    assetsFolder.file(filename, blob);
+                    downloadedUrls.set(task.url, localPath);
+                    
+                    // Mutate JSON object: 
+                    // 1. Add original source tracker
+                    // 2. Replace the actual link with local path
+                    task.parent[`${task.key}_originalsourceurl`] = task.url;
+                    task.parent[task.key] = localPath;
+                    
+                    log(`Saved as ${localPath}`, 'success');
+                } catch (error) {
+                    log(`Unexpected error with ${task.url}. Kept original link.`, 'error');
+                    downloadedUrls.set(task.url, null); // Cache the failure
+                }
+
+                completed++;
+                counter++;
+                
+                // Update Progress UI
+                const percent = Math.round((completed / tasks.length) * 100);
+                progressBar.style.width = `${percent}%`;
+                progressText.textContent = `${completed} / ${tasks.length} images`;
+            }
+
+            log('All downloads finished. Generating ZIP...', 'info');
+            
+            // Add the mutated JSON to the root of the ZIP
+            zip.file("data.json", JSON.stringify(data, null, 4));
+
+            zip.generateAsync({ type: "blob" }).then(function(content) {
+                finalZipBlob = content;
+                log('ZIP file ready!', 'success');
+                processingSection.classList.add('hidden');
+                downloadSection.classList.remove('hidden');
+            });
+        }
+    </script>
+</body>
+</html>
