@@ -1,14 +1,3 @@
-Here is a short description for your GitHub repository, followed by a comprehensive `README.md` file based on the functionality of your code.
-
-### GitHub Repository Description
-
-> A 100% client-side tool that parses JSON files, detects external image URLs, downloads and converts them to WebP, rewrites the JSON paths to local assets, and packages everything into a downloadable ZIP file. Zero backend required\!
-
------
-
-### README.md
-
-````markdown
 # 📦 JSON Image Asset Packager
 
 A lightweight, 100% client-side web application designed to help developers and content managers localize remote image assets. 
